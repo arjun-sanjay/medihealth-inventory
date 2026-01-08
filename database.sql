@@ -1,11 +1,10 @@
--- =========================================
+
 -- MEDIHEALTH DATABASE SCHEMA
 -- =========================================
 
 CREATE DATABASE IF NOT EXISTS medicine_db;
 USE medicine_db;
 
--- =========================================
 -- TABLE: medicines
 -- =========================================
 CREATE TABLE medicines (
@@ -17,7 +16,7 @@ CREATE TABLE medicines (
     selling_price DECIMAL(10,2) NOT NULL
 );
 
--- =========================================
+
 -- TABLE: customer_sales
 -- =========================================
 CREATE TABLE customer_sales (
@@ -32,7 +31,7 @@ CREATE TABLE customer_sales (
         ON UPDATE CASCADE
 );
 
--- =========================================
+
 -- TABLE: usage_logs (for demand prediction)
 -- =========================================
 CREATE TABLE usage_logs (
@@ -45,7 +44,6 @@ CREATE TABLE usage_logs (
         ON UPDATE CASCADE
 );
 
--- =========================================
 -- SAMPLE DATA (OPTIONAL)
 -- =========================================
 INSERT INTO medicines (name, category, quantity, expiry_date, selling_price)
