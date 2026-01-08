@@ -3,50 +3,48 @@ import mysql.connector
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from datetime import date, timedelta
+from datetime import date
 
-# ---------------- LOGIN CREDENTIALS ---------------- #
-USER_CREDENTIALS = {
-    "admin": {"password": "admin123"},
+# ---------------- PAGE CONFIG ---------------- #
+st.set_page_config(page_title="MEDIHEALTH", layout="wide")
+
+# ---------------- CUSTOM CSS ---------------- #
+st.markdown("""
+<style>
+.stApp { background-color:#0E1117; color:#FAFAFA; }
+section[data-testid="stSidebar"] { background-color:#161B22; }
+.stButton>button {
+    background:linear-gradient(90deg,#4CAF50,#2E7D32);
+    color:white;border-radius:10px;height:45px;border:none;
 }
+</style>
+""", unsafe_allow_html=True)
 
-# ---------------- MYSQL CONNECTION ---------------- #
+# ---------------- LOGIN ---------------- #
+USER_CREDENTIALS = {"admin": {"password": "admin123"}}
+
+# ---------------- MYSQL ---------------- #
 conn = mysql.connector.connect(
     host="localhost",
-    user="root",         
-    password="Helloworld123",  
+    user="root",
+    password="Helloworld123",
     database="medicine_db"
 )
 cursor = conn.cursor()
 
 # ---------------- LOGIN PAGE ---------------- #
 def login():
-    st.set_page_config(page_title="Login", layout="centered")
-
-    st.markdown(
-        """
-        <div style='text-align:center;'>
-            <img src='data:image/png;base64,{}' width='300'/>
-        </div>
-        """.format(base64.b64encode(open("logo.png", "rb").read()).decode()),
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<h1 style='text-align:center;'>Login to MEDIHEALTH</h1>", unsafe_allow_html=True)
-
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-
+    st.title("🔐 Login to MEDIHEALTH")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
     if st.button("Login"):
-        user = USER_CREDENTIALS.get(username)
-        if user and password == user["password"]:
+        if u in USER_CREDENTIALS and p == USER_CREDENTIALS[u]["password"]:
             st.session_state.logged_in = True
-            st.session_state.username = username
+            st.session_state.user = u
             st.rerun()
         else:
             st.error("Invalid credentials")
 
-# ---------------- SESSION ---------------- #
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -55,128 +53,127 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ---------------- SIDEBAR ---------------- #
-st.sidebar.image("logo.png", width=220)
-st.sidebar.markdown(f"**Logged in as:** {st.session_state.username}")
-st.sidebar.markdown("<h1 style='color:skyblue;'>MEDIHEALTH</h1>", unsafe_allow_html=True)
-
 menu = st.sidebar.radio(
-    "Navigation",
-    ["Add Medicine", "View Inventory", "Log Usage", "Expiry Alerts", "Demand Prediction"]
+    "📌 Navigation",
+    [
+        "🏠 Dashboard",
+        "➕ Add Medicine",
+        "📦 View Inventory",
+        "🛒 Customer Purchase",
+        "🧾 Sales Report",
+        "⚠ Expiry Alerts",
+        "📈 Demand Prediction"
+    ]
 )
 
+# ---------------- DASHBOARD ---------------- #
+if menu == "🏠 Dashboard":
+    st.title("📊 Dashboard")
+
+    cursor.execute("SELECT COUNT(*) FROM medicines")
+    st.metric("💊 Medicines", cursor.fetchone()[0])
+
+    cursor.execute("SELECT SUM(quantity) FROM medicines")
+    st.metric("📦 Total Stock", cursor.fetchone()[0] or 0)
+
 # ---------------- ADD MEDICINE ---------------- #
-if menu == "Add Medicine":
+elif menu == "➕ Add Medicine":
     st.subheader("➕ Add Medicine")
-
     name = st.text_input("Medicine Name")
-    category = st.text_input("Category")
-    quantity = st.number_input("Quantity", min_value=1)
-    expiry = st.date_input("Expiry Date")
+    cat = st.text_input("Category")
+    qty = st.number_input("Quantity", min_value=1)
+    exp = st.date_input("Expiry Date")
+    price = st.number_input("Selling Price", min_value=0.0)
 
-    if st.button("Add Medicine"):
+    if st.button("Add"):
         cursor.execute(
-            "INSERT INTO medicines (name, category, quantity, expiry_date) VALUES (%s, %s, %s, %s)",
-            (name, category, quantity, expiry)
+            "INSERT INTO medicines VALUES (NULL,%s,%s,%s,%s,%s)",
+            (name, cat, qty, exp, price)
         )
         conn.commit()
-        st.success("Medicine added successfully")
+        st.success("Medicine added")
 
 # ---------------- VIEW INVENTORY ---------------- #
-elif menu == "View Inventory":
-    st.subheader("📦 Inventory")
-
+elif menu == "📦 View Inventory":
     cursor.execute("SELECT * FROM medicines")
-    data = cursor.fetchall()
-    cols = [c[0] for c in cursor.description]
-    df = pd.DataFrame(data, columns=cols)
-
+    df = pd.DataFrame(cursor.fetchall(), columns=[c[0] for c in cursor.description])
     st.dataframe(df, use_container_width=True)
 
-# ---------------- LOG USAGE ---------------- #
-elif menu == "Log Usage":
-    st.subheader("📝 Log Medicine Usage")
+# ---------------- CUSTOMER PURCHASE ---------------- #
+elif menu == "🛒 Customer Purchase":
+    st.subheader("🛒 Medicine Purchase")
 
-    cursor.execute("SELECT id, name FROM medicines")
+    cursor.execute("SELECT id,name,selling_price,quantity FROM medicines")
     meds = cursor.fetchall()
 
-    if not meds:
-        st.warning("No medicines found")
-    else:
-        med_names = {name: mid for mid, name in meds}
+    med_map = {m[1]: m for m in meds}
+    med_name = st.selectbox("Select Medicine", med_map.keys())
 
-        selected_med = st.selectbox("Select Medicine", med_names.keys())
-        used_qty = st.number_input("Used Quantity", min_value=1)
-        usage_date = st.date_input("Usage Date", date.today())
+    customer = st.text_input("Customer Name")
+    qty = st.number_input("Quantity", min_value=1)
 
-        if st.button("Log Usage"):
-            med_id = med_names[selected_med]
+    med = med_map[med_name]
+    med_id, _, price, stock = med
 
+    total = qty * price
+    st.info(f"💰 Total Amount: ₹ {total}")
+
+    if st.button("Generate Bill"):
+        if qty > stock:
+            st.error("Not enough stock")
+        else:
             cursor.execute(
-                "INSERT INTO usage_logs (medicine_id, used_qty, usage_date) VALUES (%s, %s, %s)",
-                (med_id, used_qty, usage_date)
+                "INSERT INTO customer_sales VALUES (NULL,%s,%s,%s,%s,%s)",
+                (med_id, customer, qty, total, date.today())
             )
-
             cursor.execute(
-                "UPDATE medicines SET quantity = quantity - %s WHERE id = %s",
-                (used_qty, med_id)
+                "UPDATE medicines SET quantity=quantity-%s WHERE id=%s",
+                (qty, med_id)
             )
-
             conn.commit()
-            st.success("Usage logged successfully")
 
-# ---------------- EXPIRY ALERTS ---------------- #
-elif menu == "Expiry Alerts":
-    st.subheader("⚠ Expiry Alerts")
+            st.success("🧾 Purchase Successful")
+            st.markdown(f"""
+            ### 🧾 BILL
+            **Customer:** {customer}  
+            **Medicine:** {med_name}  
+            **Quantity:** {qty}  
+            **Total:** ₹ {total}
+            """)
 
-    today = date.today()
-    alert_date = today + timedelta(days=30)
+# ---------------- SALES REPORT ---------------- #
+elif menu == "🧾 Sales Report":
+    st.subheader("🧾 Customer Sales")
+    cursor.execute("""
+        SELECT c.id,m.name,c.customer_name,c.quantity,
+               c.total_amount,c.sale_date
+        FROM customer_sales c
+        JOIN medicines m ON c.medicine_id=m.id
+    """)
+    df = pd.DataFrame(cursor.fetchall(),
+        columns=["ID","Medicine","Customer","Qty","Amount","Date"])
+    st.dataframe(df, use_container_width=True)
 
+# ---------------- EXPIRY ALERT ---------------- #
+elif menu == "⚠ Expiry Alerts":
     cursor.execute("SELECT * FROM medicines")
-    data = cursor.fetchall()
-    cols = [c[0] for c in cursor.description]
-    df = pd.DataFrame(data, columns=cols)
+    df = pd.DataFrame(cursor.fetchall(), columns=[c[0] for c in cursor.description])
     df["expiry_date"] = pd.to_datetime(df["expiry_date"])
-
-    expired = df[df["expiry_date"] < pd.to_datetime(today)]
-    near_expiry = df[(df["expiry_date"] >= pd.to_datetime(today)) &
-                     (df["expiry_date"] <= pd.to_datetime(alert_date))]
-
-    st.markdown("### ❌ Expired Medicines")
-    st.dataframe(expired, use_container_width=True)
-
-    st.markdown("### ⚠ Near Expiry (30 Days)")
-    st.dataframe(near_expiry, use_container_width=True)
+    st.dataframe(df[df["expiry_date"] < pd.to_datetime(date.today())])
 
 # ---------------- DEMAND PREDICTION ---------------- #
-elif menu == "Demand Prediction":
-    st.subheader("📈 Demand Prediction")
-
+elif menu == "📈 Demand Prediction":
     cursor.execute("""
-        SELECT m.name, u.used_qty, u.usage_date
-        FROM usage_logs u
-        JOIN medicines m ON u.medicine_id = m.id
+        SELECT m.name,c.quantity,c.sale_date
+        FROM customer_sales c
+        JOIN medicines m ON c.medicine_id=m.id
     """)
     data = cursor.fetchall()
 
-    if not data:
-        st.warning("No usage data available")
-    else:
-        df = pd.DataFrame(data, columns=["name", "used_qty", "usage_date"])
-        df["usage_date"] = pd.to_datetime(df["usage_date"])
-
-        selected_med = st.selectbox("Select Medicine", df["name"].unique())
-        med_df = df[df["name"] == selected_med]
-
-        daily_usage = med_df.groupby("usage_date")["used_qty"].sum().reset_index()
-
-        avg_daily = daily_usage["used_qty"].mean()
-        predicted_monthly = int(avg_daily * 30)
-
-        st.metric("📦 Predicted Monthly Demand", predicted_monthly)
-
-        fig, ax = plt.subplots()
-        ax.plot(daily_usage["usage_date"], daily_usage["used_qty"])
-        ax.set_title("Daily Usage Trend")
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Quantity Used")
-        st.pyplot(fig)
+    if data:
+        df = pd.DataFrame(data, columns=["Medicine","Qty","Date"])
+        df["Date"] = pd.to_datetime(df["Date"])
+        med = st.selectbox("Medicine", df["Medicine"].unique())
+        d = df[df["Medicine"] == med]
+        pred = int(d["Qty"].mean() * 30)
+        st.metric("📦 Predicted Monthly Demand", pred)
